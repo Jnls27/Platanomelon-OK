@@ -242,14 +242,26 @@ def build():
     # ---- 3) anuncios (totales, sin fecha) -> AD_META ----
     print("  fetch anuncios (totales)...")
     ad_totals_rows = []
+    ad_image_rows = []
     for m_from, m_to in month_chunks(PERIOD_FROM, period_to):
+        # Windsor rechaza mezclar campos de imagen con métricas: dos peticiones separadas
         ad_totals_rows += windsor_get(
-            ["campaign", "adset_name", "ad_name", "effective_status", "thumbnail_url",
-             "image_asset_url", "carousel_card_media_urls", "website_destination_url",
+            ["campaign", "adset_name", "ad_name", "effective_status",
              "spend", "impressions", "outbound_clicks_outbound_click", "reach",
              "actions_omni_purchase", "action_values_omni_purchase",
              "video_play_actions_video_view", "video_thruplay_watched_actions_video_view"],
             m_from, m_to)
+        try:
+            ad_image_rows += windsor_get(
+                ["campaign", "adset_name", "ad_name", "thumbnail_url",
+                 "image_asset_url", "carousel_card_media_urls", "website_destination_url"],
+                m_from, m_to)
+        except Exception as e:
+            print(f"  [aviso] imágenes de {m_from} no disponibles, se siguen usando las anteriores: {e}", file=sys.stderr)
+    for r in ad_image_rows:
+        ad_totals_rows.append({k: r.get(k) for k in
+            ("campaign", "adset_name", "ad_name", "thumbnail_url", "image_asset_url",
+             "carousel_card_media_urls", "website_destination_url")})
 
     ad_acc = {}
     for r in ad_totals_rows:
@@ -260,6 +272,8 @@ def build():
             continue
         ci = campaigns_idx[c]
         key = (ad_name, ci, a_name)
+        if "spend" not in r and key not in ad_acc:
+            continue  # fila solo de imagen de un anuncio sin métricas: se ignora
         o = ad_acc.setdefault(key, {
             "status": None, "thumb": "", "dest": "",
             "spend": 0.0, "impr": 0.0, "outc": 0.0, "reach": 0.0,
